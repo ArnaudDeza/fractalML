@@ -1,0 +1,57 @@
+# Configuration for depth experiments
+# This file defines the parameter space for grid scans.
+
+experiment_defaults:
+  width: 128
+  num_steps: 500
+  batch_size: 16
+  dataset_mode: "matching"
+  grid_points: 1024
+  lr_min: 1.0e-6
+  lr_max: 1.0e-1
+
+experiments:
+  - name: "depth_sweep_tanh"
+    activation: "tanh"
+    depth: [3, 5, 9]
+    residual: [false, true]
+    optimizer: "sgd"
+
+  - name: "depth_sweep_relu"
+    activation: "relu"
+    depth: [3, 5, 9]
+    residual: [false, true]
+    optimizer: "sgd"
+    
+  - name: "sgd_momentum_scan"
+    activation: "tanh"
+    depth: [5]
+    residual: [false]
+    optimizer: "sgd"
+    scan_axes: ["LR0", "MOMENTUM"]
+    lr0_min: 1.0e-4
+    lr0_max: 1.0e-1
+    momentum_min: 0.0
+    momentum_max: 0.99
+
+  - name: "adam_beta2_scan"
+    activation: "relu"
+    depth: [5]
+    residual: [false]
+    optimizer: "adam"
+    scan_axes: ["LR0", "BETA2"]
+    lr0_min: 1.0e-5
+    lr0_max: 1.0e-2
+    beta2_min: 0.9
+    beta2_max: 0.9999
+
+  - name: "weight_decay_scan"
+    activation: "tanh"
+    depth: [5]
+    residual: [false]
+    optimizer: "sgd"
+    scan_axes: ["LR0", "WEIGHT_DECAY"]
+    lr0_min: 1.0e-4
+    lr0_max: 1.0e-1
+    weight_decay_min: 1.0e-5
+    weight_decay_max: 1.0

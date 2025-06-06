@@ -1,57 +1,14 @@
-# Fractal Trainability
+# Fractal Trainability (Advanced)
 
-This repository provides a Python implementation to reproduce the experiments from the paper **"Fractal Trainability: The Hyperparameter Fractal of Neural Network Training"** (arXiv:2402.06184v1).
+This repository provides a Python implementation to reproduce and extend the experiments from the paper **"Fractal Trainability: The Hyperparameter Fractal of Neural Network Training"** (arXiv:2402.06184v1).
 
-The code trains simple one-hidden-layer neural networks across a grid of hyperparameters, identifies regions of convergence versus divergence, generates high-resolution "fractal" images of the trainability boundary, produces zoom animations into the fractal, and computes box-counting fractal dimension estimates.
-
-## Repository Structure
-
-```
-fractalML/
-├── README.md
-├── requirements.txt
-├── setup.py
-├── data/
-├── src/
-│   ├── __init__.py
-│   ├── config.py
-│   ├── models/
-│   │   └── simple_net.py
-│   ├── training/
-│   │   ├── train_utils.py
-│   │   └── grid_runner.py
-│   ├── analysis/
-│   │   ├── fractal_dimension.py
-│   │   └── zoom_generator.py
-│   ├── utils/
-│   │   ├── data_generator.py
-│   │   ├── plotting.py
-│   │   └── diagnostics.py
-│   └── scripts/
-│       ├── run_full_experiment.py
-│       ├── generate_zoom_sequence.py
-│       └── estimate_fractal_dimension.py
-└── outputs/
-    ├── images/
-    ├── zooms/
-    └── fractal_metrics/
-```
+This updated version supports creating MLPs of arbitrary depth, with optional residual connections, and provides a flexible system for running experiments defined in YAML configuration files.
 
 ## Installation
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/yourusername/fractal_trainability.git
-    cd fractal_trainability
-    ```
-
-2.  Create a Python 3.10+ virtual environment and activate it:
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-
-3.  Install the dependencies and the project in editable mode:
+1.  Clone the repository and navigate into the directory.
+2.  Create and activate a Python 3.10+ virtual environment.
+3.  Install dependencies and the project in editable mode:
     ```bash
     pip install -r requirements.txt
     pip install -e .
@@ -59,60 +16,58 @@ fractalML/
 
 ## Usage
 
-### 1. Run the full grid experiment
+The main entry point is `fractal_scan.py`, which reads experiment configurations from a YAML file and can be customized with command-line arguments.
 
-This script runs the hyperparameter grid scan for the specified activation functions.
+### Configuration (`configs/depth_experiments.yaml`)
 
-```bash
-python src/scripts/run_full_experiment.py \
-    --activations tanh relu linear \
-    --width 16 \
-    --num_steps 500 \
-    --batch_size 16 \
-    --dataset_mode matching
+Experiments are defined in a YAML file. You can specify the optimizer, and set up scans over learning rates, momentum, weight decay, and Adam's betas.
+
+```yaml
+experiment_defaults:
+  width: 128
+  optimizer: "sgd"
+  # ... other defaults
+
+experiments:
+  - name: "sgd_momentum_scan"
+    activation: "tanh"
+    depth: [5]
+    optimizer: "sgd"
+    scan_axes: ["LR0", "MOMENTUM"]
+    lr0_min: 1.0e-4
+    lr0_max: 1.0e-1
+    momentum_min: 0.0
+    momentum_max: 0.99
 ```
 
-This will produce `.npy` status arrays and high-resolution PNG heatmaps in `outputs/images/`.
+### Running Experiments
 
-### 2. Generate a zoom sequence
-
-This script generates a sequence of zoomed-in images around a chosen center in the hyperparameter space.
+To run all experiments defined in the config:
 
 ```bash
-python src/scripts/generate_zoom_sequence.py \
-    --status_npy outputs/images/grid_status_tanh_n16.npy \
-    --center_lr0 -3.0 \
-    --center_lr1 -2.0 \
-    --num_levels 50 \
-    --zoom_factor 2.0 \
-    --image_size 4096 \
-    --output_dir outputs/zooms/tanh_n16
+python fractal_scan.py
 ```
 
-The zoomed PNGs will be stored under `outputs/zooms/tanh_n16/`. This script can also create an MP4 video of the zoom sequence.
-
-### 3. Stitch zoom images into a video
-
-You can create a video from the generated zoom images using this command:
+To run a single, named experiment from the config:
 
 ```bash
-python -c "from src.analysis.zoom_generator import stitch_zoom_to_video; stitch_zoom_to_video(image_dir='outputs/zooms/tanh_n16', output_video='outputs/zooms/tanh_n16_zoom.mp4', fps=10)"
+python fractal_scan.py --exp_name sgd_momentum_scan
 ```
 
-### 4. Estimate fractal dimension
-
-This script estimates the fractal dimension of the boundary from the generated zoom images.
+To override the scanned axes for an experiment:
 
 ```bash
-python src/scripts/estimate_fractal_dimension.py \
-    --images_dir outputs/zooms/tanh_n16 \
-    --output_csv outputs/fractal_metrics/tanh_n16_fractal_dims.csv
+python fractal_scan.py --exp_name adam_beta2_scan --scan_axes LR0 BETA2
 ```
 
-The resulting CSV file will contain per-level dimension estimates.
+### CLI Flags
 
-### 5. Inspect results
+-   `--config`: Path to the YAML configuration file.
+-   `--exp_name <str>`: Run only the experiment with this name from the config file.
+-   `--scan_axes <str> <str>`: Override the hyperparameters to scan on the X and Y axes.
+    Supported axes: `LR0`, `LR1`, `LR_MID`, `MOMENTUM`, `WEIGHT_DECAY`, `BETA2`.
 
--   **High-resolution heatmaps**: `outputs/images/grid_status_{activation}_n{width}.png`
--   **Zoom video**: `outputs/zooms/{activation}_n{width}_zoom.mp4`
--   **Fractal dimension CSVs**: `outputs/fractal_metrics/{activation}_n{width}_fractal_dims.csv`
+### Outputs
+
+Results are saved in `outputs/depth/{date}/{experiment_name}.png`.
+The plot titles are descriptive of the experiment configuration (e.g., optimizer, depth, activation, residual status).

@@ -1,92 +1,86 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
 from typing import Dict, List
-from src.models.simple_net import SimpleNet
+from src.models.mlp import MLP
 
-def train_one_run(net: SimpleNet,
+def train_one_run(model: MLP,
                     X: torch.Tensor,
                     y: torch.Tensor,
-                    lr_w0: float,
-                    lr_w1: float,
+                    hparams: Dict,
                     num_steps: int,
                     batch_size: int,
                     device: str = "cpu") -> Dict:
     """
-    Train a SimpleNet for a single hyperparameter configuration.
-
-    Trains the network for `num_steps` or until divergence is detected.
-    W0 uses learning rate `lr_w0`; W1 uses `lr_w1`.
+    Train a model for a single hyperparameter configuration.
 
     Args:
-        net: The SimpleNet model to train.
+        model: The MLP model to train.
         X: Training data inputs.
         y: Training data targets.
-        lr_w0: Learning rate for the first layer weights (W0).
-        lr_w1: Learning rate for the second layer weights (W1).
-        num_steps: The number of training steps to perform.
-        batch_size: The batch size for training. If less than the dataset
-                    size, mini-batch training is used.
-        device: The device to run training on ('cpu' or 'cuda').
+        hparams: Dictionary of hyperparameters including optimizer, LRs, etc.
+        num_steps: The number of training steps.
+        batch_size: Batch size for training.
+        device: The device to run training on.
 
     Returns:
-        A dictionary containing the training status and results:
-        {
-            'status': 'converged' or 'diverged',
-            'final_loss': float or None,
-            'loss_trajectory': List[float],
-            'weight_norm_trajectory': List[float],
-        }
+        A dictionary with training status and results.
     """
-    net.to(device)
-    net.train()
+    model.to(device)
+    model.train()
 
-    # Set up optimizer with two parameter groups for different learning rates
-    optimizer = optim.SGD([
-        {'params': net.W0, 'lr': lr_w0},
-        {'params': net.W1, 'lr': lr_w1}
-    ])
+    # --- Optimizer Setup ---
+    optimizer_name = hparams.get('optimizer', 'sgd').lower()
+    learning_rates = hparams['learning_rates']
+    
+    # Get layer-specific learning rates
+    lr_map = {
+        0: learning_rates.get('lr_w0', 1e-3),
+        1: learning_rates.get('lr_w1', 1e-3),
+    }
+    lr_mid = learning_rates.get('lr_mid', 1e-3)
+    
+    # Create parameter groups for the optimizer
+    param_groups = []
+    for group in model.get_parameter_groups():
+        idx = group['layer_idx']
+        lr = lr_map.get(idx, lr_mid)
+        param_groups.append({'params': group['params'], 'lr': lr})
 
+    # Configure and instantiate the optimizer
+    optimizer_args = {
+        'weight_decay': hparams.get('weight_decay', 0.0),
+    }
+    if optimizer_name == 'sgd':
+        optimizer_args['momentum'] = hparams.get('momentum', 0.0)
+        optimizer = optim.SGD(param_groups, **optimizer_args)
+    elif optimizer_name == 'adam':
+        optimizer_args['betas'] = hparams.get('betas', (0.9, 0.999))
+        optimizer = optim.Adam(param_groups, **optimizer_args)
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
+    # --- Training Loop ---
     criterion = nn.MSELoss()
-    dataset_size = X.size(0)
-    loss_trajectory: List[float] = []
-    weight_norm_trajectory: List[float] = []
-
+    loss_trajectory = []
     for step in range(num_steps):
-        if batch_size < dataset_size:
-            # Mini-batch training
-            indices = torch.randperm(dataset_size, device=device)[:batch_size]
+        if batch_size < X.size(0):
+            indices = torch.randperm(X.size(0), device=device)[:batch_size]
             X_batch, y_batch = X[indices], y[indices]
         else:
-            # Full-batch training
             X_batch, y_batch = X, y
 
         optimizer.zero_grad()
-        preds = net(X_batch)
+        preds = model(X_batch).squeeze()
         loss = criterion(preds, y_batch)
-        loss_value = loss.item()
-        loss_trajectory.append(loss_value)
+        loss_val = loss.item()
+        loss_trajectory.append(loss_val)
 
-        # Check for divergence
-        norm_w0 = net.W0.norm().item()
-        norm_w1 = net.W1.norm().item()
-        weight_norm_trajectory.append((norm_w0 + norm_w1) / 2.0)
-
-        if torch.isnan(loss) or torch.isinf(loss) or norm_w0 > 1e6 or norm_w1 > 1e6:
-            return {
-                'status': 'diverged',
-                'final_loss': None,
-                'loss_trajectory': loss_trajectory,
-                'weight_norm_trajectory': weight_norm_trajectory
-            }
+        if np.isnan(loss_val) or np.isinf(loss_val) or loss_val > 1e6:
+            return {'status': 'diverged', 'final_loss': None}
 
         loss.backward()
         optimizer.step()
 
-    final_loss = loss_trajectory[-1] if loss_trajectory else None
-    return {
-        'status': 'converged',
-        'final_loss': final_loss,
-        'loss_trajectory': loss_trajectory,
-        'weight_norm_trajectory': weight_norm_trajectory
-    }
+    return {'status': 'converged', 'final_loss': loss_trajectory[-1]}
